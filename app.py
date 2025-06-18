@@ -14,7 +14,7 @@ from flask import Response
 from bson import json_util
 
 app = Flask(__name__)
-CORS(app)
+CORS(app,origins=["https://brain-tumour-61u1.vercel.app"])
 
 # Secret key for JWT encoding/decoding
 app.config['SECRET_KEY'] = 'your_secret_key_here'
