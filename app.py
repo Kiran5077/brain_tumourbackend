@@ -1,57 +1,114 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from pymongo import MongoClient
 from flask_mail import Mail, Message
 from datetime import datetime
 from utils import load_model, transform_image, get_prediction
-import io
-import bcrypt
-from werkzeug.security import generate_password_hash, check_password_hash
-from bson.objectid import ObjectId
+from bson import ObjectId, json_util
 from urllib.parse import quote_plus
-import jwt
-import smtplib 
-from flask import Response
-from bson import json_util
-import random
+from werkzeug.security import generate_password_hash, check_password_hash
+import io, bcrypt, jwt, smtplib,time,secrets, random
+from flask import send_file,session
+from captcha.image import ImageCaptcha
+import re
 
 app = Flask(__name__)
-CORS(app, origins=["https://brain-tumour-61u1.vercel.app"], supports_credentials=True)
+CORS(app)
 
-# Secret key for JWT encoding/decoding
+# Secret key
 app.config['SECRET_KEY'] = 'your_secret_key_here'
+
+# Mail config
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'kiranpadhy2004@gmail.com'         # Replace
-app.config['MAIL_PASSWORD'] = 'jzjfkpzkncmfkklp'      # Use App Password
-app.config['MAIL_DEFAULT_SENDER'] = 'kiranpadhy2004@gmail.com'   # Same as username
+app.config['MAIL_USERNAME'] = 'pranshujena2511@gmail.com'        # Change this
+app.config['MAIL_PASSWORD'] = 'gimxxcktgcchbdlf'                 # App password
+app.config['MAIL_DEFAULT_SENDER'] = ('Team TumorDetect', 'pranshujena2511@gmail.com')
 
-mail = Mail(app)# Change this in production
 
-# MongoDB credentials
-username = quote_plus("swarnaprabhadash31")
-password = quote_plus("Swarna@3009")
-uri = f"mongodb+srv://{username}:{password}@cluster0.ayaj7ca.mongodb.net/?retryWrites=true&w=majority"
+mail = Mail(app)
+
+# -------------------- MongoDB --------------------
+username = quote_plus("pranshujena2511")
+password = quote_plus("Pranshu@91")
+uri = f"mongodb+srv://{username}:{password}@cluster0.fk09csn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+
+
+
+# Twilio credentials
+#TWILIO_ACCOUNT_SID = 'AC30c97a32d6557cdefc56091c580714dd'
+#TWILIO_AUTH_TOKEN = '36b3d5f80974aa9bab83ec726a82d0e6'
+#TWILIO_PHONE_NUMBER = '+19342470593'
+#SUPER_ADMIN_PHONE = '+91xxxxxxxxxx'  # verified number
+
+#twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+
+# MongoDB connection
 
 client = MongoClient(uri)
 db = client["brain_tumor_db"]
 
 # Collections
+model = load_model("model/brain_tumor_resnet.pth")
 history_collection = db["prediction_history"]
 admin_collection = db["admin_users"]
 users_collection = db["registered_users"]
 feedback_collection = db["feedback"]
 contacts = db['contacts']
+admin_otp_collection = db["admin_otps"]
+otp_db = {}
+pending_users = {}
 
-# Load model
-model = load_model("model/brain_tumor_resnet.pth")
+
+SUPER_ADMIN_EMAIL = "pranshujena2511@gmail.com"
 
 
 @app.route('/')
 def home():
     return "Brain Tumor Detection API"
 
+@app.route("/ping", methods=["GET"])
+def ping():
+    return jsonify({"status": "OK", "message": "Server is alive"}), 200
+
+
+# -------------------- PREDICTION --------------------
+@app.route("/generate-captcha")
+def generate_captcha():
+    from captcha.image import ImageCaptcha
+    import random, string, io
+    from flask import session, send_file
+
+    # Use default font (no need to provide any font path)
+    image_captcha = ImageCaptcha(width=200, height=80)
+
+    # Generate random CAPTCHA text
+    captcha_text = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    session['captcha'] = captcha_text.lower()
+
+    # Render image to bytes buffer
+    buf = io.BytesIO()
+    image_captcha.write(captcha_text, buf)
+    buf.seek(0)
+
+    return send_file(buf, mimetype='image/png')
+
+
+@app.route("/verify-captcha", methods=["POST"])
+def verify_captcha():
+    data = request.get_json()
+    user_input = data.get("captcha", "").strip().lower()
+    expected = session.get("captcha", "")
+
+    if user_input == expected:
+        return jsonify({"success": True})
+    return jsonify({"success": False}), 400
+
+
+
+# ========== PREDICTION ==========
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files:
@@ -81,37 +138,154 @@ def predict():
 def get_prediction_history():
     try:
         predictions = list(history_collection.find({}, {"email": 1, "prediction": 1, "timestamp": 1}))
-        for prediction in predictions:
-            prediction['_id'] = str(prediction['_id'])
-            prediction['email'] = prediction.get('email', 'unknown')
-            timestamp = prediction.get('timestamp')
-            prediction['timestamp'] = timestamp.isoformat() if timestamp else None
+        for p in predictions:
+            p['_id'] = str(p['_id'])
+            p['timestamp'] = p['timestamp'].isoformat() if p.get("timestamp") else None
         return jsonify({"success": True, "predictions": predictions}), 200
     except Exception as e:
-        return jsonify({"success": False, "message": f"Error fetching history: {str(e)}"}), 500
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route("/delete-history/<id>", methods=["DELETE"])
 def delete_prediction_by_id(id):
     try:
         result = history_collection.delete_one({"_id": ObjectId(id)})
-        if result.deleted_count == 1:
+        if result.deleted_count:
             return jsonify({"success": True, "message": "Prediction deleted"}), 200
-        else:
-            return jsonify({"success": False, "message": "Prediction not found"}), 404
+        return jsonify({"success": False, "message": "Prediction not found"}), 404
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+# -------------------- ADMIN REGISTRATION --------------------
+# Optional: simple email format checker
+def is_valid_email(email):
+    pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+    return re.match(pattern, email)
+
+@app.route("/admin-register", methods=["POST"])
+def admin_register():
+    data = request.get_json()
+    name = data.get("name")
+    email = data.get("email")
+    # phone = data.get("phone")  # ⛔️ Commented
+    password = data.get("password")
+
+    if not all([name, email, password]):
+        return jsonify({"success": False, "message": "All fields required"}), 400
+
+    if not is_valid_email(email):
+        return jsonify({"success": False, "message": "Invalid email format."}), 400
+
+    if admin_collection.find_one({"email": email}):
+        return jsonify({"success": False, "message": "Admin already exists"}), 400
+
+    try:
+        confirm_msg = Message(
+            "Thank you for registering as Admin",
+            recipients=[email]
+        )
+        confirm_msg.body = (
+            f"Hi {name},\n\n"
+            f"Thank you for registering as an admin. Please wait while we verify and approve your request."
+        )
+        mail.send(confirm_msg)
+    except Exception as e:
+        return jsonify({"success": False, "message": "Invalid email. Could not send confirmation."}), 400
+
+    # Optional: Send SMS removed for simplicity
+    # if phone:
+    #     try:
+    #         twilio_client.messages.create(
+    #             body=f"Hi {name}, thank you for registering as an admin. Await approval.",
+    #             from_=TWILIO_PHONE_NUMBER,
+    #             to=phone
+    #         )
+    #     except Exception as e:
+    #         print("Failed to send SMS to admin:", str(e))
+
+    otp = str(random.randint(100000, 999999))
+    admin_otp_collection.delete_many({"email": email, "verified": False})
+    admin_otp_collection.insert_one({
+        "email": email,
+        "name": name,
+        "password": password,
+        "otp": otp,
+        "verified": False,
+        "created_at": datetime.utcnow()
+    })
+
+    try:
+        otp_msg = Message("Admin Approval OTP", recipients=[SUPER_ADMIN_EMAIL])
+        otp_msg.body = (
+            f"A new admin '{name}' requested access.\n\n"
+            f"Email: {email}\nOTP: {otp}"
+        )
+        mail.send(otp_msg)
+    except Exception as e:
+        return jsonify({"success": False, "message": "Failed to email OTP to super admin."}), 500
+
+    #try:
+        #twilio_client.messages.create(
+            ##body=f"Admin access OTP for '{name}' ({email}): {otp}",
+            #from_=TWILIO_PHONE_NUMBER,
+            #to=SUPER_ADMIN_PHONE
+        #)
+    #except Exception as e:
+        #return jsonify({"success": False, "message": "Failed to SMS OTP to super admin."}), 500
+
+    return jsonify({
+        "success": True,
+        "message": "Confirmation email sent to admin and OTP sent to Super Admin via email and SMS."
+    }), 200
+
+@app.route("/verify-admin-otp", methods=["POST"])
+def verify_admin_otp():
+    data = request.get_json()
+    email, otp_input = data.get("email"), data.get("otp")
+
+    # Find OTP entry
+    otp_record = admin_otp_collection.find_one({
+        "email": email,
+        "otp": otp_input,
+        "verified": False
+    })
+
+    if not otp_record:
+        return jsonify({"success": False, "message": "Invalid OTP"}), 400
+
+    try:
+        # Send "Thank you" message to admin email
+        msg = Message("Thank you for registering", recipients=[email])
+        msg.body = f"Hi {otp_record['name']},\nYour admin registration is successful. Welcome!"
+        mail.send(msg)
+    except Exception as e:
+        return jsonify({"success": False, "message": "Invalid email. Could not send confirmation."}), 400
+
+    # Create admin record only after successful email
+    admin_collection.insert_one({
+        "name": otp_record["name"],
+        "email": otp_record["email"],
+        "password": otp_record["password"],
+        "status": "approved"
+    })
+
+    # Mark OTP as used
+    admin_otp_collection.update_one({"_id": otp_record["_id"]}, {"$set": {"verified": True}})
+
+    return jsonify({"success": True, "message": "Admin registered successfully."}), 200
+
 
 @app.route('/admin-login', methods=['POST'])
 def admin_login():
     data = request.get_json()
-    email = data.get('email', '')
-    password = data.get('password', '')
-
+    email, password = data.get('email'), data.get('password')
     admin = admin_collection.find_one({"email": email})
-    if not admin or admin['password'] != password:
-        return jsonify({'success': False, 'message': 'Invalid admin credentials'}), 401
-
-    return jsonify({'success': True, 'message': 'Login successful', 'email': admin['email']})
+    if not admin:
+        return jsonify({'success': False, 'message': 'Admin not found'}), 404
+    if admin['password'] != password:
+        return jsonify({'success': False, 'message': 'Incorrect password'}), 401
+    if admin['status'] != "approved":
+        return jsonify({'success': False, 'message': 'Access not yet approved'}), 403
+    return jsonify({'success': True, 'message': 'Login successful', 'email': email}), 200
 
 @app.route('/admin-dashboard', methods=['GET'])
 def admin_dashboard():
@@ -119,230 +293,177 @@ def admin_dashboard():
     return jsonify({"users": users})
 
 
-import random
-from flask import request, jsonify
-from flask_mail import Message
-import bcrypt
-
+# -------------------- USER REGISTRATION + OTP --------------------
 @app.route('/user-register', methods=['POST'])
-def registered_users():
+def register_user():
     data = request.get_json()
     name = data.get('name')
-    email = data.get('email')
+    email = data.get('email', '').strip().lower()
     password = data.get('password')
 
     if not name or not email or not password:
-        return jsonify({"success": False, "message": "All fields are required"}), 400
+        return jsonify({'success': False, 'message': 'All fields are required'}), 400
 
-    # ✅ Check if user already exists
-    if users_collection.find_one({"email": email}):
-        return jsonify({"success": False, "message": "Email already registered. Please log in."}), 409
+    if users_collection.find_one({'email': email}):
+        return jsonify({'success': False, 'message': 'Email already registered'}), 409
 
-    # ✅ Hash password
-    hashed_pw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    otp = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+    expiry = int(time.time()) + 60
+    otp_db[email] = {'otp': otp, 'expiry': expiry}
 
-    # ✅ Generate 6-digit OTP
-    otp = str(random.randint(100000, 999999))
-
-    # ✅ Insert user with OTP and is_verified=False
-    user_data = {
-        "name": name,
-        "email": email,
-        "password": hashed_pw,
-        "otp": otp,
-        "is_verified": False
+    pending_users[email] = {
+        'name': name,
+        'email': email,
+        'hashed_password': generate_password_hash(password)
     }
-    users_collection.insert_one(user_data)
 
-    # ✅ Try to send OTP email
     try:
-        msg = Message("Your OTP for Brain Tumor Detection App", recipients=[email])
-        msg.body = f"""
-Hi {name},
-
-Thank you for registering on our Brain Tumor Detection platform.
-
-Your One-Time Password (OTP) is: {otp}
-
-Enter this OTP in the app to complete your registration.
-
-Best regards,  
-Brain Tumor Detection Team
-"""
+        msg = Message('Your OTP for Brain Tumor Detection App', recipients=[email])
+        msg.html = f"""
+        <div style="font-family: Arial; background-color: #1a1a1a; color: #fff; padding: 20px;">
+            <h3>Hi {name},</h3>
+            <p>Thank you for registering.</p>
+            <p><strong>Your OTP is:</strong> 
+               <span style="color:#ffd700; font-size:20px;">{otp}</span></p>
+            <a href="https://brain-frontend3.vercel.app/"
+               style="background:#ffd700; color:#000; padding:10px 20px; text-decoration:none; border-radius:5px;">
+               Go to Home</a>
+        </div>
+        """
         mail.send(msg)
-        return jsonify({"success": True, "email": email})
-
-    except (smtplib.SMTPRecipientsRefused, smtplib.SMTPException) as e:
-        users_collection.delete_one({"email": email})
-        return jsonify({"success": False, "message": "Please enter a valid email address."}), 400
-
+        return jsonify({'success': True, 'message': 'OTP sent to email'})
     except Exception as e:
-        users_collection.delete_one({"email": email})
-        return jsonify({"success": False, "message": "Failed to send OTP. Please try again later."}), 500
+        print("Mail error:", e)
+        return jsonify({'success': False, 'message': 'Failed to send OTP'}), 500
 
-    
+
 @app.route('/verify-otp', methods=['POST'])
 def verify_otp():
     data = request.get_json()
-    email = data.get('email')
-    otp_input = data.get('otp')
+    email = data.get('email', '').strip().lower()
+    otp = data.get('otp')
 
-    if not email or not otp_input:
-        return jsonify({"success": False, "message": "Email and OTP are required"}), 400
+    if not email or not otp:
+        return jsonify({'success': False, 'message': 'Email and OTP required'}), 400
 
-    user = users_collection.find_one({"email": email})
+    record = otp_db.get(email)
+    if not record or record['otp'] != otp:
+        return jsonify({'success': False, 'message': 'Invalid OTP'}), 401
 
+    if int(time.time()) > record['expiry']:
+        return jsonify({'success': False, 'message': 'OTP expired'}), 403
+
+    if email in pending_users:
+        user_info = pending_users[email]
+        users_collection.insert_one({
+            'name': user_info['name'],
+            'email': email,
+            'hashed_password': user_info['hashed_password']
+        })
+        del pending_users[email]
+
+    del otp_db[email]
+    return jsonify({'success': True, 'message': 'OTP verified successfully'})
+
+
+# ========== NEW: OTP FOR PREDICTION ==========
+@app.route('/send-otp', methods=['POST'])
+def send_otp():
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+
+    if not email:
+        return jsonify({'success': False, 'message': 'Email is required'}), 400
+
+    user = users_collection.find_one({'email': email})
     if not user:
-        return jsonify({"success": False, "message": "User not found"}), 404
+        return jsonify({'success': False, 'message': 'Email not registered'}), 404
 
-    if not user.get("otp"):
-        return jsonify({"success": False, "message": "OTP was not sent to this email"}), 403
+    otp = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+    expiry = int(time.time()) + 300
+    otp_db[email] = {'otp': otp, 'expiry': expiry}
 
-    if user.get("is_verified"):
-        return jsonify({"success": True, "message": "Already verified"}), 200
-
-    if user.get("otp") != otp_input:
-        return jsonify({"success": False, "message": "Invalid OTP"}), 401
-
-    # ✅ Update user to verified
-    users_collection.update_one(
-        {"email": email},
-        {"$set": {"is_verified": True}, "$unset": {"otp": ""}}
-    )
-
-    return jsonify({"success": True, "message": "OTP verified successfully"})
+    try:
+        msg = Message('Your OTP for Tumor Analysis Verification', recipients=[email])
+        msg.body = f"Your OTP is: {otp}"
+        mail.send(msg)
+        return jsonify({'success': True, 'message': 'OTP sent successfully'})
+    except Exception as e:
+        print("OTP Send Error:", e)
+        return jsonify({'success': False, 'message': 'Failed to send OTP'}), 500
 
 
+# ========== LOGIN ==========
+@app.route('/user-login', methods=['POST'])
+def user_login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
 
+    if not email or not password:
+        return jsonify({'success': False, 'message': 'Email and password required'}), 400
 
-    # Flask example
+    user = users_collection.find_one({'email': email})
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
 
-@app.route("/user-login", methods=["POST"])
-def login_user():
-    data = request.json
-    email = data.get("email")
-    password = data.get("password")
+    if not check_password_hash(user['hashed_password'], password):
+        return jsonify({'success': False, 'message': 'Incorrect password'}), 401
 
-    user = users_collection.find_one({"email": email})
-    if user:
-        stored_password = user["password"]
-        if isinstance(stored_password, str):
-            stored_password = stored_password.encode("utf-8")
+    return jsonify({'success': True, 'email': email, 'message': 'Login successful'})
 
-        if bcrypt.checkpw(password.encode("utf-8"), stored_password):
-            return jsonify({"success": True, "email": email}), 200
-
-    return jsonify({"success": False, "message": "Invalid credentials"}), 401
-
+# -------------------- FEEDBACK + CONTACT --------------------
 @app.route('/feedback', methods=['POST'])
 def feedback():
     data = request.get_json()
-
-    if not data:
-        return jsonify({"error": "No data received"}), 400
-
-    feedback_entry = {
-        "fullName": data.get("fullName"),
-        "email": data.get("email"),
-        "feedbackTitle": data.get("feedbackTitle"),
-        "category": data.get("category"),
-        "rating": data.get("rating"),
-        "detailedFeedback": data.get("detailedFeedback")
-    }
-
-    # Insert into MongoDB
-    feedback_collection.insert_one(feedback_entry)
-
+    feedback_collection.insert_one(data)
     return jsonify({"message": "Feedback received successfully"}), 200
 
 @app.route("/get-feedback", methods=["GET"])
 def get_feedback():
-    try:
-        feedback_list = list(feedback_collection.find({}, {
-            "fullName": 1,
-            "email": 1,
-            "feedbackTitle": 1,
-            "category": 1,
-            "rating": 1,
-            "detailedFeedback": 1
-        }))
-        for feedback in feedback_list:
-            feedback['_id'] = str(feedback['_id'])
-        return jsonify({"success": True, "feedback": feedback_list}), 200
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({"success": False, "message": "Error fetching feedback"}), 500
+    feedback_list = list(feedback_collection.find())
+    for f in feedback_list:
+        f['_id'] = str(f['_id'])
+    return jsonify({"success": True, "feedback": feedback_list})
 
-
-@app.route('/api/delete_feedback/<feedback_id>', methods=['DELETE'])
+@app.route("/api/delete_feedback/<feedback_id>", methods=["DELETE"])
 def delete_feedback(feedback_id):
-    try:
-        result = feedback_collection.delete_one({"_id": ObjectId(feedback_id)})
-        if result.deleted_count == 1:
-            return jsonify({"message": "Feedback deleted successfully"}), 200
-        else:
-            return jsonify({"message": "Feedback not found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    result = feedback_collection.delete_one({"_id": ObjectId(feedback_id)})
+    if result.deleted_count:
+        return jsonify({"message": "Deleted"}), 200
+    return jsonify({"message": "Not found"}), 404
 
 @app.route('/contact', methods=['POST'])
 def contact():
     data = request.get_json()
-    full_name = data.get('fullName')
-    email = data.get('email')
-    subject = data.get('subject')
-    message = data.get('message')
-
-    if not full_name or not email or not message:
-        return jsonify({'error': 'Missing required fields'}), 400
-
-    contact_entry = {
-        'fullName': full_name,
-        'email': email,
-        'subject': subject,
-        'message': message,
-        'timestamp': datetime.utcnow().isoformat()
-    }
-
-    contacts.insert_one(contact_entry)
+    data['timestamp'] = datetime.utcnow().isoformat()
+    contacts.insert_one(data)
     return jsonify({'message': 'Message received'}), 200
-
 
 @app.route("/admin/contacts", methods=["GET"])
 def get_contacts():
-    try:
-        contact_list = list(contacts.find())
-        for contact in contact_list:
-            contact['_id'] = str(contact['_id'])
-        return jsonify(contact_list), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    contact_list = list(contacts.find())
+    for contact in contact_list:
+        contact['_id'] = str(contact['_id'])
+    return jsonify(contact_list), 200
 
 @app.route("/admin/contacts/<id>", methods=["DELETE"])
 def delete_contact(id):
-    try:
-        result = contacts.delete_one({"_id": ObjectId(id)})
-        if result.deleted_count:
-            return jsonify({"message": "Deleted"}), 200
-        else:
-            return jsonify({"error": "Not found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    result = contacts.delete_one({"_id": ObjectId(id)})
+    if result.deleted_count:
+        return jsonify({"message": "Deleted"}), 200
+    return jsonify({"error": "Not found"}), 404
 
 @app.route('/change-password', methods=['POST'])
 def change_password():
     data = request.get_json()
-    email = data.get('email', '').strip()
-    current_password = data.get('currentPassword', '').strip()
-    new_password = data.get('newPassword', '').strip()
+    email = data.get('email')
+    current_password = data.get('currentPassword')
+    new_password = data.get('newPassword')
     is_admin = data.get('isAdmin', False)
-
-    if not all([email, current_password, new_password]):
-        return jsonify({'success': False, 'message': 'All fields are required'}), 400
 
     collection = admin_collection if is_admin else users_collection
     user = collection.find_one({'email': email})
-
     if not user:
         return jsonify({'success': False, 'message': 'User not found'}), 404
 
@@ -353,15 +474,17 @@ def change_password():
     else:
         if not check_password_hash(user['password'], current_password):
             return jsonify({'success': False, 'message': 'Incorrect current password'}), 401
-        hashed_new_password = generate_password_hash(new_password)
-        collection.update_one({'email': email}, {'$set': {'password': hashed_new_password}})
+        new_hashed = generate_password_hash(new_password)
+        collection.update_one({'email': email}, {'$set': {'password': new_hashed}})
 
     return jsonify({'success': True, 'message': 'Password changed successfully'}), 200
 
 if __name__ == '__main__':
-    if admin_collection.count_documents({"email": "swarnaprabhadash04@gmail.com"}) == 0:
+    if admin_collection.count_documents({"email": SUPER_ADMIN_EMAIL}) == 0:
         admin_collection.insert_one({
-            "email": "swarnaprabhadash04@gmail.com",
-            "password": "admin123"
+            "name": "Super Admin",
+            "email": SUPER_ADMIN_EMAIL,
+            "password": "admin123",
+            "status": "approved"
         })
     app.run(debug=True)
