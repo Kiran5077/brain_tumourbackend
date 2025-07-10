@@ -12,7 +12,7 @@ from flask import send_file,session
 from captcha.image import ImageCaptcha
 import re
 
-app = Flask(__name__)
+app = Flask(_name_)
 CORS(app)
 
 # Secret key
@@ -22,19 +22,12 @@ app.config['SECRET_KEY'] = 'your_secret_key_here'
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'pranshujena2511@gmail.com'        # Change this
-app.config['MAIL_PASSWORD'] = 'gimxxcktgcchbdlf'                 # App password
-app.config['MAIL_DEFAULT_SENDER'] = ('Team TumorDetect', 'pranshujena2511@gmail.com')
-
-
+app.config['MAIL_USERNAME'] = 'kiranpadhy2004@gmail.com'
+app.config['MAIL_PASSWORD'] = 'jzjfkpzkncmfkklp'  # Use Gmail App Password
+app.config['MAIL_DEFAULT_SENDER'] = ('Team TumorDetect','kiranpadhy2004@gmail.com')
 mail = Mail(app)
 
-# -------------------- MongoDB --------------------
-username = quote_plus("pranshujena2511")
-password = quote_plus("Pranshu@91")
-uri = f"mongodb+srv://{username}:{password}@cluster0.fk09csn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-
-
+from twilio.rest import Client
 
 # Twilio credentials
 #TWILIO_ACCOUNT_SID = 'AC30c97a32d6557cdefc56091c580714dd'
@@ -46,7 +39,9 @@ uri = f"mongodb+srv://{username}:{password}@cluster0.fk09csn.mongodb.net/?retryW
 
 
 # MongoDB connection
-
+username = quote_plus("swarnaprabhadash31")
+password = quote_plus("Swarna@3009")
+uri = f"mongodb+srv://{username}:{password}@cluster0.ayaj7ca.mongodb.net/?retryWrites=true&w=majority"
 client = MongoClient(uri)
 db = client["brain_tumor_db"]
 
@@ -62,17 +57,12 @@ otp_db = {}
 pending_users = {}
 
 
-SUPER_ADMIN_EMAIL = "pranshujena2511@gmail.com"
-
+SUPER_ADMIN_EMAIL = "swarnaprabhadash04@gmail.com"
+FRONTEND_URL = "http://localhost:5173"  # Change on deploy
 
 @app.route('/')
 def home():
     return "Brain Tumor Detection API"
-
-@app.route("/ping", methods=["GET"])
-def ping():
-    return jsonify({"status": "OK", "message": "Server is alive"}), 200
-
 
 # -------------------- PREDICTION --------------------
 @app.route("/generate-captcha")
@@ -166,7 +156,7 @@ def admin_register():
     data = request.get_json()
     name = data.get("name")
     email = data.get("email")
-    # phone = data.get("phone")  # ⛔️ Commented
+    # phone = data.get("phone")  # ⛔ Commented
     password = data.get("password")
 
     if not all([name, email, password]):
@@ -277,15 +267,42 @@ def verify_admin_otp():
 @app.route('/admin-login', methods=['POST'])
 def admin_login():
     data = request.get_json()
-    email, password = data.get('email'), data.get('password')
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email or not password:
+        return jsonify({'success': False, 'message': 'Email and password required'}), 400
+
     admin = admin_collection.find_one({"email": email})
     if not admin:
         return jsonify({'success': False, 'message': 'Admin not found'}), 404
-    if admin['password'] != password:
-        return jsonify({'success': False, 'message': 'Incorrect password'}), 401
+
+    # Check if it's the Super Admin
+    if email == SUPER_ADMIN_EMAIL:
+        if admin['password'] == password:
+            return jsonify({
+                'success': True,
+                'message': 'Super Admin login successful',
+                'role': 'super_admin',
+                'email': email
+            }), 200
+        else:
+            return jsonify({'success': False, 'message': 'Incorrect password'}), 401
+
+    # Regular admin
     if admin['status'] != "approved":
         return jsonify({'success': False, 'message': 'Access not yet approved'}), 403
-    return jsonify({'success': True, 'message': 'Login successful', 'email': email}), 200
+
+    if admin['password'] != password:
+        return jsonify({'success': False, 'message': 'Incorrect password'}), 401
+
+    return jsonify({
+        'success': True,
+        'message': 'Admin login successful',
+        'role': 'admin',
+        'email': email
+    }), 200
+
 
 @app.route('/admin-dashboard', methods=['GET'])
 def admin_dashboard():
@@ -325,7 +342,7 @@ def register_user():
             <p>Thank you for registering.</p>
             <p><strong>Your OTP is:</strong> 
                <span style="color:#ffd700; font-size:20px;">{otp}</span></p>
-            <a href="https://brain-frontend3.vercel.app/"
+            <a href="https://brain-tumour-61u1.vercel.app"
                style="background:#ffd700; color:#000; padding:10px 20px; text-decoration:none; border-radius:5px;">
                Go to Home</a>
         </div>
@@ -479,7 +496,7 @@ def change_password():
 
     return jsonify({'success': True, 'message': 'Password changed successfully'}), 200
 
-if __name__ == '__main__':
+if _name_ == '_main_':
     if admin_collection.count_documents({"email": SUPER_ADMIN_EMAIL}) == 0:
         admin_collection.insert_one({
             "name": "Super Admin",
