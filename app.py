@@ -50,7 +50,7 @@ pending_users = {}
 
 
 SUPER_ADMIN_EMAIL = "swarnaprabhadash04@gmail.com"
-FRONTEND_URL = "http://localhost:5173"  # Change on deploy
+FRONTEND_URL = "https://brain-tumour-61u1.vercel.app" 
 
 @app.route('/')
 def home():
