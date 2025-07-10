@@ -27,15 +27,7 @@ app.config['MAIL_PASSWORD'] = 'jzjfkpzkncmfkklp'  # Use Gmail App Password
 app.config['MAIL_DEFAULT_SENDER'] = ('Team TumorDetect','kiranpadhy2004@gmail.com')
 mail = Mail(app)
 
-from twilio.rest import Client
 
-# Twilio credentials
-#TWILIO_ACCOUNT_SID = 'AC30c97a32d6557cdefc56091c580714dd'
-#TWILIO_AUTH_TOKEN = '36b3d5f80974aa9bab83ec726a82d0e6'
-#TWILIO_PHONE_NUMBER = '+19342470593'
-#SUPER_ADMIN_PHONE = '+91xxxxxxxxxx'  # verified number
-
-#twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
 
 # MongoDB connection
