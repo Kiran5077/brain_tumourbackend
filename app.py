@@ -405,21 +405,38 @@ def send_otp():
 # ========== LOGIN ==========
 @app.route('/user-login', methods=['POST'])
 def user_login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
 
-    if not email or not password:
-        return jsonify({'success': False, 'message': 'Email and password required'}), 400
+        if not email or not password:
+            return jsonify({'success': False, 'message': 'Email and password required'}), 400
 
-    user = users_collection.find_one({'email': email})
-    if not user:
-        return jsonify({'success': False, 'message': 'User not found'}), 404
+        user = users_collection.find_one({'email': email})
+        if not user:
+            return jsonify({'success': False, 'message': 'User not found'}), 404
 
-    if not check_password_hash(user['hashed_password'], password):
-        return jsonify({'success': False, 'message': 'Incorrect password'}), 401
+        # Check using 'hashed_password' if available, else fallback to plain 'password' (for admin)
+        hashed_password = user.get('hashed_password') or user.get('password')
+        if not hashed_password:
+            return jsonify({'success': False, 'message': 'No password found for user'}), 500
 
-    return jsonify({'success': True, 'email': email, 'message': 'Login successful'})
+        # Check hash if it's hashed, else use plain comparison
+        if user.get('hashed_password'):
+            if not check_password_hash(hashed_password, password):
+                return jsonify({'success': False, 'message': 'Incorrect password'}), 401
+        else:
+            if hashed_password != password:
+                return jsonify({'success': False, 'message': 'Incorrect password'}), 401
+
+        return jsonify({'success': True, 'email': email, 'message': 'Login successful'})
+    
+    except Exception as e:
+        import traceback
+        print("LOGIN ERROR:", traceback.format_exc())
+        return jsonify({'success': False, 'message': 'Server error'}), 500
+
 
 # -------------------- FEEDBACK + CONTACT --------------------
 @app.route('/feedback', methods=['POST'])
