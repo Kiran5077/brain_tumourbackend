@@ -12,3 +12,4 @@ Werkzeug
 PyJWT
 gunicorn
 captcha
+twilio
