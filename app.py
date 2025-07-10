@@ -12,7 +12,7 @@ from flask import send_file,session
 from captcha.image import ImageCaptcha
 import re
 
-app = Flask(_name_)
+app = Flask(__name__)
 CORS(app)
 
 # Secret key
@@ -496,7 +496,7 @@ def change_password():
 
     return jsonify({'success': True, 'message': 'Password changed successfully'}), 200
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     if admin_collection.count_documents({"email": SUPER_ADMIN_EMAIL}) == 0:
         admin_collection.insert_one({
             "name": "Super Admin",
