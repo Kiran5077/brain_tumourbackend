@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify, Response
-from flask_cors import CORS
 from pymongo import MongoClient
 from flask_mail import Mail, Message
 from datetime import datetime
@@ -13,13 +12,18 @@ from captcha.image import ImageCaptcha
 import re
 
 app = Flask(__name__)
-CORS(
-    app,
-    resources={r"/*": {
-        "origins": ["https://brain-tumour-61u1.vercel.app"]
-    }},
-    supports_credentials=True
-)
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "https://brain-tumour-61u1.vercel.app"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    return response
+
+# Handle preflight OPTIONS
+@app.route("/<path:path>", methods=["OPTIONS"])
+def options_handler(path):
+    return "", 200
 
 # Secret key
 app.config['SECRET_KEY'] = 'your_secret_key_here'
