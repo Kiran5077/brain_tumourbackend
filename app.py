@@ -13,7 +13,13 @@ from captcha.image import ImageCaptcha
 import re
 
 app = Flask(__name__)
-CORS(app)
+CORS(
+    app,
+    resources={r"/*": {
+        "origins": ["https://brain-tumour-61u1.vercel.app"]
+    }},
+    supports_credentials=True
+)
 
 # Secret key
 app.config['SECRET_KEY'] = 'your_secret_key_here'
