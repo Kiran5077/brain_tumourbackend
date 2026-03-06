@@ -18,12 +18,24 @@ from utils import load_model, transform_image, get_prediction
 app = Flask(__name__)
 CORS(
     app,
-    resources={r"/*": {"origins": "https://brain-tumour-61u1.vercel.app"}},
+    resources={r"/*": {"origins": "*"}},
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     supports_credentials=True
 )
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = Response()
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        return response
+
 @app.after_request
 def after_request(response):
-    response.headers["Access-Control-Allow-Origin"] = "https://brain-tumour-61u1.vercel.app"
+    response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
     return response
