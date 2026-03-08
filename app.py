@@ -16,20 +16,9 @@ import random, string, io
 from utils import load_model, transform_image, get_prediction
 
 app = Flask(__name__)
-CORS(
-    app,
-    resources={r"/*": {"origins": "*"}},
-    allow_headers=["Content-Type", "Authorization"],
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    supports_credentials=True
-)
-
-@app.after_request
-def after_request(response):
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
-    return response
+CORS(app,
+     origins=["https://brain-tumour-61u1.vercel.app"],
+     supports_credentials=True)
 
 # -------------------- Config --------------------
 app.secret_key = 'your_secret_key_here'
@@ -112,17 +101,27 @@ def verify_captcha():
 # ========== PREDICTION ==========
 @app.route('/predict', methods=['POST'])
 def predict():
+    global model
+
+    # Load the model only when prediction is requested
+    if model is None:
+        print("Loading ML model...")
+        model = load_model("model/brain_tumor_resnet.pth")
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
 
     file = request.files['file']
+
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
 
     try:
         email = request.form.get('email', 'unknown')
+
         image_bytes = io.BytesIO(file.read())
         image_tensor = transform_image(image_bytes)
+
         prediction = get_prediction(model, image_tensor)
 
         history_collection.insert_one({
@@ -132,7 +131,9 @@ def predict():
         })
 
         return jsonify({'prediction': prediction})
+
     except Exception as e:
+        print("PREDICTION ERROR:", str(e))
         return jsonify({'error': str(e)}), 500
 
 
@@ -180,16 +181,8 @@ def admin_dashboard():
 
 
 # ========== USER REGISTRATION ==========
-@app.route('/user-register', methods=['POST', 'OPTIONS'])
+@app.route('/user-register', methods=['POST'])
 def register_user():
-
-    # Handle CORS preflight request
-    if request.method == "OPTIONS":
-        response = jsonify({"success": True})
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
-        response.headers.add("Access-Control-Allow-Methods", "POST,OPTIONS")
-        return response
 
     data = request.get_json()
     name = data.get('name')
@@ -215,22 +208,13 @@ def register_user():
     try:
         msg = Message('Your OTP for Brain Tumor Detection App', recipients=[email])
         msg.html = f"""
-        <div style="font-family: Arial; background-color: #1a1a1a; color: #fff; padding: 20px;">
-            <h3>Hi {name},</h3>
-            <p>Thank you for registering.</p>
-            <p><strong>Your OTP is:</strong> 
-               <span style="color:#ffd700; font-size:20px;">{otp}</span></p>
-            <a href="https://brain-tumour-61u1.vercel.app"
-               style="background:#ffd700; color:#000; padding:10px 20px; text-decoration:none; border-radius:5px;">
-               Go to Home</a>
-        </div>
+        <h3>Hi {name}</h3>
+        <p>Your OTP is <b>{otp}</b></p>
         """
+
         mail.send(msg)
 
-        response = jsonify({'success': True, 'message': 'OTP sent to email'})
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add("Access-Control-Allow-Credentials", "true")
-        return response
+        return jsonify({'success': True, 'message': 'OTP sent to email'})
 
     except Exception as e:
         print("Mail error:", e)
