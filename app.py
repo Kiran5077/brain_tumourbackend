@@ -229,6 +229,7 @@ def register_user():
 
         response = jsonify({'success': True, 'message': 'OTP sent to email'})
         response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
         return response
 
     except Exception as e:
