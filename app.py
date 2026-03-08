@@ -24,15 +24,6 @@ CORS(
     supports_credentials=True
 )
 
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = Response()
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-        return response
-
 @app.after_request
 def after_request(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -189,8 +180,17 @@ def admin_dashboard():
 
 
 # ========== USER REGISTRATION ==========
-@app.route('/user-register', methods=['POST'])
+@app.route('/user-register', methods=['POST', 'OPTIONS'])
 def register_user():
+
+    # Handle CORS preflight request
+    if request.method == "OPTIONS":
+        response = jsonify({"success": True})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "POST,OPTIONS")
+        return response
+
     data = request.get_json()
     name = data.get('name')
     email = data.get('email', '').strip().lower()
@@ -226,7 +226,11 @@ def register_user():
         </div>
         """
         mail.send(msg)
-        return jsonify({'success': True, 'message': 'OTP sent to email'})
+
+        response = jsonify({'success': True, 'message': 'OTP sent to email'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        return response
+
     except Exception as e:
         print("Mail error:", e)
         return jsonify({'success': False, 'message': 'Failed to send OTP'}), 500
